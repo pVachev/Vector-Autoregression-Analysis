@@ -1,0 +1,292 @@
+---
+title: "Vector Autoregression (VAR)"
+output:
+  html_document:
+    df_print: paged
+---
+This is small project to test any significant relationships in price movements between the most liquid contracts in Europe for power, gas and carbon emissions respectively. The data has been extracted from investing.com starting from 23rd January until 26th March. 
+
+ICE Dutch TTF Natural Gas Futures: https://www.investing.com/commodities/ice-dutch-ttf-gas-c1-futures 
+German Power Baseload Calendar Month Futures: https://www.investing.com/commodities/german-power-baseload-electricity-m-futures
+European Union Allowance (EUA) Monthly Futures: https://www.investing.com/commodities/european-union-allowance-eua-year-futures 
+
+
+The power and gas prices are daily data representing the closing price of next month delivery. The carbon emissions price represents the December contract of that year which is the most liquid. 
+
+Data is divided into stationary and non-stationary. Non-stationary data is the actual prices. Stationary data represents the daily percent change in price. 
+
+The project consists of several tests that measure the usefulness of the data and the actual relationship between stationary and non-stationary data. 
+
+The end goal of the project is to measure 3 statements:
+
+1. To what extent are the prices of power and gas influencing each other? 
+2. The change in price of the carbon contract does not influence the other prices as much it gets influenced by them. True or False? 
+3. How to improve measurements further? What are the next steps to build on the project? 
+
+In terms of code quality, the objective is to create as less variables as possible and less loops as possible. LLM has been used in computing of the code. 
+
+The plan of the project is as follows:
+
+1. Import libraries and convert the Date column. 
+2. Plot stat and non-stat data. 
+3. Perform Granger Causality Test for direct relationships up to the 5th lag (Output is collapsable)
+4. Perform Johansen Test for Cointegration. 
+5. Augmented Dickey-Fuller test for stationarity. 
+6. Plot Autocorrelation and Partial Autocorrelation for the stationary data. 
+7. Print summary of the VAR model
+8. Perform Jarque-Bera and Shapiro-Wilk tests to check for normality of residuals. 
+
+
+```{r setup, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(readr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(vars)
+library(MASS)
+library(strucchange)
+library(sandwich)
+library(urca)
+library(tseries)
+library(tidyverse)
+library(tidyr)
+library(gridExtra)
+library(lmtest)
+library(nortest)
+
+data <- read_csv("nrg_data.csv")
+```
+
+```{r}
+data <- data %>%
+  mutate(Date = as.Date(Date)) %>%
+  arrange(Date)
+```
+
+```{r}
+ggplot(data, aes(x = as.Date(Date), y = Price_Power)) +
+  geom_line(color = "blue", linewidth=0.6) +
+  labs(title = "Price of Power", x = "Date", y = "Price") +
+  theme_minimal()
+
+ggplot(data, aes(x = as.Date(Date), y = Price_Gas)) +
+  geom_line(color = "red", linewidth=0.6) +
+  labs(title = "Price of Gas", x = "Date", y = "Price") +
+  theme_minimal()
+
+ggplot(data, aes(x = as.Date(Date), y = Price_Eua)) +
+  geom_line(color = "green", linewidth=0.6) +
+  labs(title = "Price of EUA", x = "Date", y = "Price") +
+  theme_minimal()
+```
+
+
+```{r}
+# Plot Change_Eua
+ggplot(data, aes(x = as.Date(Date), y = Change_power)) +
+  geom_line(color = "blue") +
+  labs(title = "Change in Power", x = "Date", y = "Change") +
+  theme_minimal()
+
+# Plot Change_Gas
+ggplot(data, aes(x = as.Date(Date), y = Change_gas)) +
+  geom_line(color = "red") +
+  labs(title = "Change in Gas", x = "Date", y = "Change") +
+  theme_minimal()
+
+# Plot Change_Eua
+ggplot(data, aes(x = as.Date(Date), y = Change_eua)) +
+  geom_line(color = "green") +
+  labs(title = "Change in EUA", x = "Date", y = "Change") +
+  theme_minimal()
+
+
+```
+
+
+<style>
+  /* Style for the collapsible toggle to increase font size */
+  details summary {
+    font-size: 18px;  /* You can change this to any size you want */
+    font-weight: bold;
+  }
+  pre {
+    font-size: 14px;  /* Optional: Adjusts the font size of the output within the collapsible section */
+  }
+</style>
+
+
+
+```{r Granger Causality Test, echo=TRUE, results='asis'}
+
+
+
+# Capture all test output
+granger_results <- ""
+
+for (lag in 1:5) {
+  granger_results <- paste0(
+    granger_results,
+    sprintf("\nTesting if Change_gas causes Change_power (Lag %d)\n", lag),
+    paste(capture.output(grangertest(Change_power ~ Change_gas, order = lag, data = data)), collapse = "\n"),
+
+    sprintf("\nTesting if Change_power causes Change_gas (Lag %d)\n", lag),
+    paste(capture.output(grangertest(Change_gas ~ Change_power, order = lag, data = data)), collapse = "\n"),
+
+    sprintf("\nTesting if Change_gas causes Change_eua (Lag %d)\n", lag),
+    paste(capture.output(grangertest(Change_eua ~ Change_gas, order = lag, data = data)), collapse = "\n"),
+
+    sprintf("\nTesting if Change_eua causes Change_gas (Lag %d)\n", lag),
+    paste(capture.output(grangertest(Change_gas ~ Change_eua, order = lag, data = data)), collapse = "\n"),
+
+    sprintf("\nTesting if Change_power causes Change_eua (Lag %d)\n", lag),
+    paste(capture.output(grangertest(Change_eua ~ Change_power, order = lag, data = data)), collapse = "\n"),
+
+    sprintf("\nTesting if Change_eua causes Change_power (Lag %d)\n", lag),
+    paste(capture.output(grangertest(Change_power ~ Change_eua, order = lag, data = data)), collapse = "\n"),
+
+    "\n\n"
+  )
+}
+
+# Safely output wrapped HTML with collapsible section
+cat(paste0(
+  "<details><summary><strong>Granger Causality Test Results (Click to expand)</strong></summary>\n",
+  "<pre>\n",
+  granger_results,
+  "</pre>\n</details>\n"
+))
+
+```
+Granger causality tests show a strong bidirectional relationship between gas and power prices: gas changes significantly influence power prices across all lags (especially at lags 2 and 3), while power also significantly affects gas, though to a slightly lesser extent. 
+
+Gas appears to influence EUA prices only at lag 3, suggesting a delayed impact, while EUA changes do not significantly affect gas prices at any lag. Power prices significantly impact EUA prices at lags 1 and 2, with marginal significance at lag 3, implying a moderate forward-looking relationship. 
+
+In contrast, EUA price changes do not Granger-cause changes in power prices across any lags. Overall, gas and power show the strongest interdependence, while EUA is more of a receiver than an influencer in this system. This is what was expected from the data. EUA naturally driven by the amount of gas burnt in the atmosphere. High demand spikes are naturally caused either by increased demand or reduced supply. If we assume supply is constantly seasonal then spikes in demand for electricity should determine the price and henceforth the price of EUA. The reverse relationship is not present. 
+
+
+
+```{r}
+# Perform the Johansen Cointegration Test on columns from the existing data frame
+johansen_test <- ca.jo(data[, c("Price_Gas", "Price_Power", "Price_Eua")], 
+                       type = "trace", ecdet = "const", K = 2)
+
+# Display the summary of the test
+summary(johansen_test)
+
+```
+
+No siginificant cointegration between non-stationary data. 
+
+
+```{r}
+# Perform ADF test on specific columns (Price_Gas.l2, Price_Power.l2, Price_Eua.l2)
+adf_results <- apply(data[, c("Change_gas", "Change_power", "Change_eua")], 2, function(x) suppressWarnings(adf.test(x, alternative = "stationary")))
+
+# View the results
+adf_results
+
+```
+
+
+```{r}
+# Load necessary libraries
+
+# Create a 2-row, 3-column plot layout
+par(mfrow = c(2, 3))
+
+# Plot ACF (Autocorrelation Function) for Change_power 
+acf(data$Change_power, lag.max = 12, main = "ACF of Change_power")
+
+# Plot ACF (Autocorrelation Function) for Change_gas 
+acf(data$Change_gas, lag.max = 12, main = "ACF of Change_gas")
+
+# Plot ACF (Autocorrelation Function) for Change_eua 
+acf(data$Change_eua, lag.max = 12, main = "ACF of Change_eua")
+
+# Plot PACF (Partial Autocorrelation Function) for Change_power
+pacf(data$Change_power, lag.max = 12, main = "PACF of Change_power")
+
+# Plot PACF (Partial Autocorrelation Function) for Change_gas 
+pacf(data$Change_gas, lag.max = 12, main = "PACF of Change_gas")
+
+# Plot PACF (Partial Autocorrelation Function) for Change_eua 
+pacf(data$Change_eua, lag.max = 12, main = "PACF of Change_eua")
+
+
+
+```
+The tests show high Autocorrelation at the first lag. This means that individual sationary data point are heavility influenced by its preceding value. While this is expected in a daily data, we could observe that ACF lowers as lags increase which leads us to believe that serial autocorrelation is not present. 
+
+It also tells us that in our VAR model it would be better if we used more than one lag. 
+
+
+
+```{r}
+  # For Jarque-Bera test
+  # For Anderson-Darling test 
+
+
+var_model <- VAR(data[, c("Change_gas", "Change_power", "Change_eua")], p = 3)
+
+# Extract residuals from the VAR model
+residuals_var <- residuals(var_model)
+summary(var_model)
+
+# Perform Shapiro-Wilk Test on residuals for each variable
+shapiro_results <- apply(residuals_var, 2, function(x) shapiro.test(x))
+
+# Perform Jarque-Bera Test on residuals for each variable
+jb_results <- apply(residuals_var, 2, function(x) jarque.bera.test(x))
+
+# Output the results of the Shapiro-Wilk test
+shapiro_results
+
+# Output the results of the Jarque-Bera test
+jb_results
+
+```
+# Equation-by-Equation Interpretation
+
+## Change_gas
+**Significant predictors:**
+- `Change_power.l1` (p = 0.002): previous period power returns affect gas.
+- `Change_gas.l2` (p < 0.001): significant autocorrelation.
+- `Change_power.l2` (p < 0.001)
+- `Change_gas.l3` is marginally significant (p ≈ 0.051)
+
+**Interpretation:** Suggests strong influence from both own lags and power price movements.  
+**R² = 2.2%** → low explanatory power, typical for high-frequency returns.
+
+---
+
+## Change_power
+**Significant predictors:**
+- `Change_gas.l1` (p < 0.001)
+- `Change_gas.l2` (p = 0.028): gas impacts power with some lag.
+- `Change_eua.l3` is marginally significant (p ≈ 0.050)
+
+**Interpretation:** Gas price movements lead power prices.  
+**R² = 2.2%** → again, modest but expected for differenced data.
+
+---
+
+## Change_eua
+**Significant predictors:**
+- `Change_power.l2` (p = 0.035)
+- `Change_eua.l2` (p = 0.009)
+- `Change_gas.l3` (p = 0.0017)
+- `const` (p = 0.018)
+
+**Interpretation:** EUA dynamics seem more affected by power/gas with a delay.  
+**R² = 1.78%**
+
+The VAR model tells us that on a daily level, gas and power have very small and insignificant relationship which is worth expanding further in a monthly granularity of the data where the R² could be higher. The autocorrelation and residual normality tests tell us that a better idea would be to try with VARMA (VAR Moving Average) model in case we want to keep the data daily. It might have better conclusions regarding the relationship between the prices of these energy sources. 
+
+The project also confirmed the initial hypotheses: strong two-way relationship between power and gas and a lot less significant of EUA to power and gas. 
+
+
+
+
+
